@@ -627,7 +627,7 @@ static StatementNode *parse_print_statement (void) {
 
   /* continue the loop until the statement appears to be finished */
   } while (! this->priv->errors->get_code (this->priv->errors)
-    && token->get_class (token) == TOKEN_COMMA);
+    && (token->get_class (token) == TOKEN_COMMA || token->get_class(token) == TOKEN_SEMICOLON));
 
   /* push back the last token and return the assembled statement */
   if (! this->priv->errors->get_code (this->priv->errors))

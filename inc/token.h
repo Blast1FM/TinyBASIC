@@ -50,6 +50,7 @@ typedef enum
    TOKEN_GREATERTHAN, /* > */
    TOKEN_GREATEROREQUAL, /* >= */
    TOKEN_COMMA, /* comma separator */
+   TOKEN_SEMICOLON, /* Semicolon separator */
    TOKEN_ILLEGAL /* unrecognised characters */
   } TokenClass;
 

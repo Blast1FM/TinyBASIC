@@ -171,6 +171,9 @@ static TokenClass identify_symbol (int ch) {
   case ',':
     return TOKEN_COMMA;
     break;
+  case ';':
+    return TOKEN_SEMICOLON;
+    break;
   default:
     return TOKEN_SYMBOL;
   }
@@ -293,7 +296,7 @@ static void default_mode (TokeniserState *state) {
   }
 
   /* deal with other symbol operators */
-  else if (strchr ("+-*/=(),", state->ch) != NULL) {
+  else if (strchr ("+-*/=(),;", state->ch) != NULL) {
     data->start_line = data->line;
     data->start_pos = data->pos;
     store_character (state);
