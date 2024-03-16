@@ -202,6 +202,8 @@ static TokenClass identify_word (char *word) {
     return TOKEN_INPUT;
   else if (! tinybasic_strcmp (word, "REM"))
     return TOKEN_REM;
+  else if (! tinybasic_strcmp (word, "RND"))
+    return TOKEN_RND;
   else
     return TOKEN_WORD;
 }

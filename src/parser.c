@@ -703,6 +703,11 @@ static StatementNode *parse_input_statement (void) {
   return statement;
 }
 
+static StatementNode *parse_rnd_statement(void)
+{
+  // TODO implement
+}
+
 /*
  * Parse a statement from the source file
  * returns:
@@ -754,6 +759,10 @@ static StatementNode *parse_statement () {
     case TOKEN_INPUT:
       token->destroy (token);
       statement = parse_input_statement ();
+      break;
+    case TOKEN_RND:
+      token->destroy (token);
+      statement = parse_rnd_statement ();
       break;
     default:
       this->priv->errors->set_code

@@ -36,6 +36,7 @@ typedef enum
    TOKEN_PRINT, /* the PRINT keyword */
    TOKEN_INPUT, /* the INPUT keyword */
    TOKEN_REM, /* the REM keyword */
+   TOKEN_RND, /* RND keyword */
    TOKEN_VARIABLE, /* a single letter A..Z */
    TOKEN_PLUS, /* addition or unary positive */
    TOKEN_MINUS, /* subtraction or unary negative */
