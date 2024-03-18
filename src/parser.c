@@ -260,7 +260,8 @@ static ExpressionNode *parse_expression (void) {
     while ((token = get_token_to_parse ())
       && ! this->priv->errors->get_code (this->priv->errors)
       && (token->get_class (token) == TOKEN_PLUS
-      || token->get_class (token) == TOKEN_MINUS)) {
+      || token->get_class (token) == TOKEN_MINUS)
+      || token->get_class (token) == TOKEN_RND) {
 
       /* parse the sign and the factor */
       rhterm = rhterm_create ();
