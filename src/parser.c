@@ -703,10 +703,12 @@ static StatementNode *parse_input_statement (void) {
   return statement;
 }
 
-static StatementNode *parse_rnd_statement(void)
+//RND function call is an expression, and I'm dumb
+/* static StatementNode *parse_rnd_statement(void)
 {
+
   // TODO implement
-}
+} */
 
 /*
  * Parse a statement from the source file
@@ -760,10 +762,10 @@ static StatementNode *parse_statement () {
       token->destroy (token);
       statement = parse_input_statement ();
       break;
-    case TOKEN_RND:
+/*     case TOKEN_RND:
       token->destroy (token);
       statement = parse_rnd_statement ();
-      break;
+      break; */
     default:
       this->priv->errors->set_code
         (this->priv->errors, E_UNRECOGNISED_COMMAND, token->get_line (token),
