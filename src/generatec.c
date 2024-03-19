@@ -96,6 +96,13 @@ static char *output_factor (FactorNode *factor) {
         free (expression_text);
       }
       break;
+    case FACTOR_RND:
+      if((expression_text = output_expression(factor->data.expression))){
+        factor_text = malloc(strlen(expression_text)+8);
+        sprintf(factor_text, "rand(%s)", expression_text);
+        free(expression_text);
+      }
+      break;
     default:
       errors->set_code (errors, E_INVALID_EXPRESSION, 0, 0);
   }

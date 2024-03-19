@@ -125,6 +125,45 @@ static FactorNode *parse_factor (void) {
     token->destroy (token);
   }
 
+  else if (token->get_class (token) == TOKEN_RND){
+    factor->class = FACTOR_RND;
+    token->destroy (token);
+    token = get_token_to_parse();
+    if(token)
+    {
+      if (token->get_class(token) == TOKEN_LEFT_PARENTHESIS)
+      {
+        /* parse the parenthesised expression and complete the factor */
+        token->destroy (token);
+        expression = parse_expression ();
+        if (expression) {
+          token = get_token_to_parse ();
+          if (token->get_class (token) == TOKEN_RIGHT_PARENTHESIS) {
+            factor->class = FACTOR_EXPRESSION;
+            factor->data.expression = expression;
+          } else {
+            this->priv->errors->set_code
+              (this->priv->errors, E_MISSING_RIGHT_PARENTHESIS, start_line,
+                this->priv->last_label);
+            factor_destroy (factor);
+            factor = NULL;
+            expression_destroy (expression);
+          }
+          token->destroy (token);
+        }
+
+        /* clean up after invalid parenthesised expression */
+        else {
+          this->priv->errors->set_code (this->priv->errors, E_INVALID_EXPRESSION,
+            token->get_line (token), this->priv->last_label);
+          token->destroy (token);
+          factor_destroy (factor);
+          factor = NULL;
+        }
+      }
+    }
+  }
+
   /* interpret an parenthesised expression */
   else if (token->get_class (token) == TOKEN_LEFT_PARENTHESIS) {
 
@@ -260,8 +299,7 @@ static ExpressionNode *parse_expression (void) {
     while ((token = get_token_to_parse ())
       && ! this->priv->errors->get_code (this->priv->errors)
       && (token->get_class (token) == TOKEN_PLUS
-      || token->get_class (token) == TOKEN_MINUS)
-      || token->get_class (token) == TOKEN_RND) {
+      || token->get_class (token) == TOKEN_MINUS)) {
 
       /* parse the sign and the factor */
       rhterm = rhterm_create ();

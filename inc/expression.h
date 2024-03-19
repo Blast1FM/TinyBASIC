@@ -28,7 +28,8 @@ typedef enum {
   FACTOR_NONE, /* class as yet undetermined */
   FACTOR_VARIABLE, /* a variable */
   FACTOR_VALUE, /* an integer value */
-  FACTOR_EXPRESSION /* a bracketed expression */
+  FACTOR_EXPRESSION, /* a bracketed expression */
+  FACTOR_RND /* RND Expression*/
 } FactorClass;
 
 /* The signs */
