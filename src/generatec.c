@@ -98,8 +98,8 @@ static char *output_factor (FactorNode *factor) {
       break;
     case FACTOR_RND:
       if((expression_text = output_expression(factor->data.expression))){
-        factor_text = malloc(strlen(expression_text)+8);
-        sprintf(factor_text, "rand(%s)", expression_text);
+        factor_text = malloc(strlen(expression_text)+13);
+        sprintf(factor_text, "rand()%%(%s)", expression_text);
         free(expression_text);
       }
       break;
