@@ -1,13 +1,5 @@
-/*
- * Tiny BASIC
- * Tokenisation module
- *
- * Copyright (C) Damian Gareth Walker 2019
- * Created: 04-Aug-2019
- */
+// Tokenisation module.
 
-
-/* included headers */
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -16,592 +8,453 @@
 #include "common.h"
 
 
-/*
- * Data definitions
- */
-
-
-/* modes of reading */
+// Режимы чтения. 
 typedef enum {
-  DEFAULT_MODE, /* we have no idea what's coming */
-  COMMENT_MODE, /* reading a comment */
-  WORD_MODE, /* reading an identifier or keyword */
-  NUMBER_MODE, /* reading a numeric constant */
-  LESS_THAN_MODE, /* reading an operator staring with < */
-  GREATER_THAN_MODE, /* reading an operator starting with > */
-  STRING_LITERAL_MODE, /* reading a string literal */
-  UNKNOWN_MODE /* we are lost */
+    DEFAULT_MODE, // режим по умолчанию, когда мы не знаем, что будет считываться
+    COMMENT_MODE, // режим чтения комментария
+    WORD_MODE, //режим чтения идентификатора или ключевого слова
+    NUMBER_MODE, // режим чтения числовой константы
+    LESS_THAN_MODE, // режим чтения оператора, начинающегося с <
+    GREATER_THAN_MODE, // режим чтения оператора, начинающегося с >
+    STRING_LITERAL_MODE, // режим чтения строковой литеры
+    UNKNOWN_MODE // потерянный режим
 } Mode;
 
-/* current state information */
+// Информация о текущем состоянии.
 typedef struct {
-  Token *token; /* token to return */
-  Mode mode; /* current reading mode */
-  int ch; /* last-read character */
-  char *content; /* content of token under construction */
-  int max; /* memory reserved for content */
+    Token* token; // токен для возврата
+    Mode mode; // текущий режим чтения
+    int ch; // последний считанный символ
+    char* content; // содержимое создаваемого токена
+    int max; // выделенная память для содержимого
 } TokeniserState;
 
-/* Private data */
+// Приватные данные
 typedef struct {
-  FILE *input; /* the input file */
-  int line, /* current line in the input file */
-    pos, /* current position on the input line */
-    start_line, /* line on which a token started */
-    start_pos; /* position on which a token started */
+    FILE* input; // входной файл
+    int line, // текущая строка во входном файле
+        pos, // текущая позиция в строке ввода
+        start_line, // строка, на которой начался токен
+        start_pos; // позиция, на которой начался токен
 } Private;
 
 
-/*
- * File level variables
- */
-
-
-/* convenience variables */
+// Вспомогательные переменные. 
 static TokenStream *this; /* token stream passed in to public method */
 static Private *data; /* private data for this */
 
+//Считываем символ и обновляем позицию
+static int read_character(TokeniserState* state) {
+    int ch; // символ, считанный из потока
+    // считываем символ
+    ch = fgetc(data->input);
 
-/*
- * Level 2 Tokeniser Routines
- */
+    // обновляем позицию и строку
+    if (ch == '\n') { // если символ - новая строка
+        ++data->line; // увеличиваем счетчик строки
+        data->pos = 0; // сбрасываем счетчик позиции
+    }
+    else {
+        ++data->pos; // увеличиваем счетчик позиции
+    }
 
-
-/*
- * Read a character and update the position counter
- * globals:
- *   int               line    current line after character read
- *   int               pos     current character position after character read
- * params:
- *   TokeniserState*   state   current state of the tokeniser
- * returns:
- *   int              character just read
- */
-static int read_character (TokeniserState *state) {
-
-  int ch; /* character read from stream */
-
-  /* read the character */
-  ch = fgetc (data->input);
-
-  /* update the position and line counters */
-  if (ch == '\n') {
-    ++data->line;
-    data->pos = 0;
-  } else {
-    ++data->pos;
-  }
-
-  /* return the character */
-  return ch;
+    // возвращаем символ
+    return ch;
 }
 
-/* 
- * Push a character back into the input stream and update position markers
- * globals:
- *   int               line    line number rolled back
- *   int               pos     character position rolled back
- * params:
- *   TokeniserState*   state   current state of the tokeniser
- */
+// Вставляем символ обратно во входной поток и обновляем положение
 static void unread_character (TokeniserState *state) {
-  ungetc (state->ch, data->input);
-  if (state->ch == '\n')
-    --data->line;
-  else
-    --data->pos;
+  ungetc (state->ch, data->input); // возвращаем символ в поток ввода
+  if (state->ch == '\n') // если символ - новая строка
+      --data->line; // уменьшаем счетчик строки
+  else 
+      --data->pos; // уменьшаем счетчик позиции
 }
 
-/*
- * Append the last read character to the token content
- * params:
- *   TokeniserState*   state   current state of the tokeniser
- */
-static void store_character (TokeniserState *state) {
+// Добавляем последний прочитанный символ к содержимому токена
+static void store_character(TokeniserState* state) {
+    char* temp; // временный указатель на содержимое
+    int length; // текущая длина токена 
 
-  /* variable declarations */
-  char *temp; /* temporary pointer to content */
-  int length; /* current length of token */
-
-  /* allocate more memory for the token content if necessary */
-  if (strlen (state->content) == state->max - 1) {
-    temp = state->content;
-    state->max *= 2;
-    state->content = malloc (state->max);
-    strcpy (state->content, temp);
-    free (temp);
-  }
-
-  /* now add the character to the token */
-  length = strlen (state->content);
-  state->content [length++] = state->ch;
-  state->content [length] = '\0';
-}
-
-/*
- * Identify the various recognised symbols
- * params:
- *   int   ch     the character to identify
- * returns:
- *   TokenClass   the token class recognised by the parser
- */
-static TokenClass identify_symbol (int ch) {
-  switch (ch) {
-  case '+':
-    return TOKEN_PLUS;
-    break;
-  case '-':
-    return TOKEN_MINUS;
-    break;
-  case '*':
-    return TOKEN_MULTIPLY;
-    break;
-  case '/':
-    return TOKEN_DIVIDE;
-    break;
-  case '=':
-    return TOKEN_EQUAL;
-    break;
-  case '(':
-    return TOKEN_LEFT_PARENTHESIS;
-    break;
-  case ')':
-    return TOKEN_RIGHT_PARENTHESIS;
-    break;
-  case ',':
-    return TOKEN_COMMA;
-    break;
-  case ';':
-    return TOKEN_SEMICOLON;
-    break;
-  default:
-    return TOKEN_SYMBOL;
-  }
-}
-
-static TokenClass identify_word (char *word) {
-  if (strlen (word) == 1)
-    return TOKEN_VARIABLE;
-  else if (! tinybasic_strcmp (word, "LET"))
-    return TOKEN_LET;
-  else if (! tinybasic_strcmp (word, "IF"))
-    return TOKEN_IF;
-  else if (! tinybasic_strcmp (word, "THEN"))
-    return TOKEN_THEN;
-  else if (! tinybasic_strcmp (word, "GOTO"))
-    return TOKEN_GOTO;
-  else if (! tinybasic_strcmp (word, "GOSUB"))
-    return TOKEN_GOSUB;
-  else if (! tinybasic_strcmp (word, "RETURN"))
-    return TOKEN_RETURN;
-  else if (! tinybasic_strcmp (word, "END"))
-    return TOKEN_END;
-  else if (! tinybasic_strcmp (word, "PRINT"))
-    return TOKEN_PRINT;
-  else if (! tinybasic_strcmp (word, "INPUT"))
-    return TOKEN_INPUT;
-  else if (! tinybasic_strcmp (word, "REM"))
-    return TOKEN_REM;
-  else if (! tinybasic_strcmp (word, "RND"))
-    return TOKEN_RND;
-  else
-    return TOKEN_WORD;
-}
-
-/*
- * Identify compound (multi-character) symbols.
- * Also identifies some single-character symbols that can form
- * the start of multi-character symbols.
- * params:
- *   char*   symbol   the symbol to identify
- * returns:
- *   TokenClass       the identification
- */
-static TokenClass identify_compound_symbol (char *symbol) {
-  if (! strcmp (symbol, "<>")
-      || ! strcmp (symbol, "><"))
-    return TOKEN_UNEQUAL;
-  else if (! strcmp (symbol, "<"))
-    return TOKEN_LESSTHAN;
-  else if (! strcmp (symbol, "<="))
-    return TOKEN_LESSOREQUAL;
-  else if (! strcmp (symbol, ">"))
-    return TOKEN_GREATERTHAN;
-  else if (! strcmp (symbol, ">="))
-    return TOKEN_GREATEROREQUAL;
-  else
-    return TOKEN_SYMBOL;
-}
-
-
-/*
- * Level 1 Tokeniser Routines
- */
-
-
-/*
- * Default mode - deal with character when state is unknown
- * globals:
- *   int               line         current line in the source file
- *   int               pos          current character position in the source
- *   int               start_line   line on which the current token started
- *   int               start_pos    char pos on which the current token started
- * params:
- *   TokeniserState*   state        current state of the tokeniser
- */
-static void default_mode (TokeniserState *state) {
-
-  /* deal with non-EOL whitespace */
-  if (state->ch == ' ' ||
-      state->ch == '\t') {
-    state->ch = read_character (state);
-    data->start_line = data->line;
-    data->start_pos = data->pos;
-  }
-
-  /* deal with EOL whitespace */
-  else if (state->ch == '\n') {
-    data->start_line = data->line - 1;
-    data->start_pos = data->pos;
-    state->token = new_Token_init
-      (TOKEN_EOL, data->start_line, data->start_pos, state->content);
-  }
-
-  /* alphabetic characters start a word */
-  else if ((state->ch >= 'A' && state->ch <= 'Z') ||
-	   (state->ch >= 'a' && state->ch <= 'z')) {
-    data->start_line = data->line;
-    data->start_pos = data->pos;
-    state->mode = WORD_MODE;
-  }
-
-  /* digits start a number */
-  else if (state->ch >= '0' && state->ch <= '9')
-    state->mode = NUMBER_MODE;
-
-  /* check for tokens starting with less-than (<, <=, <>) */
-  else if (state->ch == '<') {
-    data->start_line = data->line;
-    data->start_pos = data->pos;
-    store_character (state);
-    state->ch = read_character (state);
-    state->mode = LESS_THAN_MODE;
-  }
-
-  /* check for tokens starting with greater-than (>, >=) */
-  else if (state->ch == '>') {
-    data->start_line = data->line;
-    data->start_pos = data->pos;
-    store_character (state);
-    state->ch = read_character (state);
-    state->mode = GREATER_THAN_MODE;
-  }
-
-  /* deal with other symbol operators */
-  else if (strchr ("+-*/=(),;", state->ch) != NULL) {
-    data->start_line = data->line;
-    data->start_pos = data->pos;
-    store_character (state);
-    state->token = new_Token_init (identify_symbol (state->ch),
-      data->start_line, data->start_pos, state->content);
-  }
-
-  /* double quotes start a string literal */
-  else if (state->ch == '"') {
-    data->start_line = data->line;
-    data->start_pos = data->pos;
-    state->ch = read_character (state);
-    state->mode = STRING_LITERAL_MODE;
-  }
-
-  /* detect end of file */
-  else if (state->ch == EOF) {
-    data->start_line = data->line;
-    data->start_pos = data->pos;
-    state->token = new_Token_init
-      (TOKEN_EOF, data->start_line, data->start_pos, state->content);
-  }
-
-  /* other characters are illegal */
-  else {
-    data->start_line = data->line;
-    data->start_pos = data->pos;
-    store_character (state);
-    state->token = new_Token_init
-      (TOKEN_ILLEGAL, data->start_line, data->start_pos, state->content);
-  }
-}
-
-/*
- * Word mode - deal with character when building a word token
- * globals:
- *   int               start_line   line on which the current token started
- *   int               start_pos    char pos on which the current token started
- * params:
- *   TokeniserState*   state        current state of the tokeniser
- */
-static void word_mode (TokeniserState *state) {
-
-  /* local variables */
-  TokenClass class; /* recognised class of keyword */
-    
-  /* add letters and digits to the token */
-  if ((state->ch >= 'A' && state->ch <= 'Z') ||
-      (state->ch >= 'a' && state->ch <= 'z')) {
-    store_character (state);
-    state->ch = read_character (state);
-  }
-    
-  /* other characters are pushed back for the next token */
-  else {
-    if (state->ch != EOF)
-      unread_character (state);
-    class = identify_word (state->content);
-    if (class == TOKEN_REM) {
-      *state->content = '\0';
-      state->mode = COMMENT_MODE;
+    // выделяем больше памяти для содержимого токена, если это необходимо
+    if (strlen(state->content) == state->max - 1) {
+        temp = state->content; // временно сохраняем указатель на содержимое
+        state->max *= 2; // увеличиваем выделенную память в два раза
+        state->content = malloc(state->max); // выделяем новую память для содержимого
+        strcpy(state->content, temp); // копируем содержимое в новую память
+        free(temp); // освобождаем старую память
     }
-    else
-      state->token = new_Token_init
-        (class, data->start_line, data->start_pos, state->content);
-  }
-}
 
-/*
- * Comment mode - skip till end of line after a REM
- * globals:
- *   int               start_line   line on which the current token started
- *   int               start_pos    char pos on which the current token started
- * params:
- *   TokeniserState*   state        current state of the tokeniser
- */
-static void comment_mode (TokeniserState *state) {
-  if (state->ch == '\n')
-    state->mode = DEFAULT_MODE;
-  else
-    state->ch = read_character (state);
-}
-
-/*
- * Number mode - building a number token (integer only)
- * globals:
- *   int               start_line   line on which the current token started
- *   int               start_pos    char pos on which the current token started
- * params:
- *   TokeniserState*   state        current state of the tokeniser
- */
-static void number_mode (TokeniserState *state) {
-
-  /* add digits to the token */
-  if (state->ch >= '0' && state->ch <= '9') {
-    store_character (state);
-    state->ch = read_character (state);
-  }
-    
-  /* other characters are pushed back for the next token */
-  else {
-    if (state->ch != EOF)
-      unread_character (state);
-    state->token = new_Token_init
-      (TOKEN_NUMBER, data->start_line, data->start_pos, state->content);
-  }
-
-}
-
-/*
- * Less than mode - checking for <> and <= operators
- * globals:
- *   int               start_line   line on which the current token started
- *   int               start_pos    char pos on which the current token started
- * params:
- *   TokeniserState*   state        current state of the tokeniser
- */
-static void less_than_mode (TokeniserState *state) {
-  if (state->ch == '=' || state->ch == '>')
-    store_character (state);
-  else
-    unread_character (state);
-  state->token = new_Token_init
-    (identify_compound_symbol (state->content), data->start_line,
-     data->start_pos, state->content);
-}
-
-/*
- * Greater than mode - checking for >= and >< operators
- * globals:
- *   int               start_line   line on which the current token started
- *   int               start_pos    char pos on which the current token started
- * params:
- *   TokeniserState*   state        current state of the tokeniser
- */
-static void greater_than_mode (TokeniserState *state) {
-  if (state->ch == '=' || state->ch == '<')
-    store_character (state);
-  else
-    ungetc (state->ch, data->input);
-  state->token = new_Token_init
-    (identify_compound_symbol (state->content), data->start_line,
-     data->start_pos, state->content);
-}
-
-/*
- * String literal mode - reading a string
- * globals:
- *   int               start_line   line on which the current token started
- *   int               start_pos    char pos on which the current token started
- * params:
- *   TokeniserState*   state        current state of the tokeniser
- */
-static void string_literal_mode (TokeniserState *state) {
-
-  /* a quote terminates the string */
-  if (state->ch == '"')
-    state->token = new_Token_init
-      (TOKEN_STRING, data->start_line, data->start_pos, state->content);
-
-  /* a backslash escapes the next character */
-  else if (state->ch == '\\') {
-    state->ch = read_character (state);
-    store_character (state);
-    state->ch = read_character (state);
-  }
-
-  /* EOF generates an error */
-  else if (state->ch == EOF)
-    state->token = new_Token_init
-      (TOKEN_ILLEGAL, data->start_line, data->start_pos, state->content);
-
-  /* all other characters are part of the string */
-  else {
-    store_character (state);
-    state->ch = read_character (state);
-  }
+    // добавляем символ к токену
+    length = strlen(state->content); // получаем текущую длину содержимого
+    state->content[length++] = state->ch; // добавляем символ к содержимому
+    state->content[length] = '\0'; // добавляем завершающий нулевой символ
 }
 
 
-/*
- * Top Level Tokeniser Routines
- */
-
-
-/*
- * Get the next token
- * params:
- *   TokenStream*   token_stream   the token stream being processed
- * returns:
- *   Token*                        the token built
- */
-static Token *next (TokenStream *token_stream) {
-
-  /* local variables */
-  TokeniserState state; /* current state of reading */
-  Token *return_token; /* token to return */
-
-  /* initialise */
-  this = token_stream;
-  data = this->data;
-  state.token = NULL;
-  state.mode = DEFAULT_MODE;
-  state.max = 1024;
-  state.content = malloc (state.max);
-  *(state.content) = '\0';
-  state.ch = read_character (&state);
-
-  /* main loop */
-  while (state.token == NULL) {
-    switch (state.mode) {
-    case DEFAULT_MODE:
-      default_mode (&state);
-      break;
-    case COMMENT_MODE:
-      comment_mode (&state);
-      break;
-    case WORD_MODE:
-      word_mode (&state);
-      break;
-    case NUMBER_MODE:
-      number_mode (&state);
-      break;
-    case LESS_THAN_MODE:
-      less_than_mode (&state);
-      break;
-    case GREATER_THAN_MODE:
-      greater_than_mode (&state);
-      break;
-    case STRING_LITERAL_MODE:
-      string_literal_mode (&state);
-      break;
+// Идентифицируем распознанные символы
+static TokenClass identify_symbol(int ch) {
+    switch (ch) {
+    case '+':
+        return TOKEN_PLUS; // возвращаем класс токена "плюс"
+        break;
+    case '-':
+        return TOKEN_MINUS; // возвращаем класс токена "минус"
+        break;
+    case '*':
+        return TOKEN_MULTIPLY; // возвращаем класс токена "умножить"
+        break;
+    case '/':
+        return TOKEN_DIVIDE; // возвращаем класс токена "разделить"
+        break;
+    case '=':
+        return TOKEN_EQUAL; // возвращаем класс токена "равно"
+        break;
+    case '(':
+        return TOKEN_LEFT_PARENTHESIS; // возвращаем класс токена "левая скобка"
+        break;
+    case ')':
+        return TOKEN_RIGHT_PARENTHESIS; // возвращаем класс токена "правая скобка"
+        break;
+    case ',':
+        return TOKEN_COMMA; // возвращаем класс токена "запятая"
+        break;
+    case ';':
+        return TOKEN_SEMICOLON; // возвращаем класс токена "точка с запятой"
+        break;
     default:
-      state.token = new_Token_init
-	(TOKEN_EOF, data->start_line, data->start_pos, state.content);
-      state.ch = EOF; /* temporary hack */
+        return TOKEN_SYMBOL; // возвращаем класс токена "символ"
     }
-  }
+}
 
-  /* store token and release state memory */
-  return_token = state.token;
-  free (state.content);
+static TokenClass identify_word(char* word) {
+    if (strlen(word) == 1)
+        return TOKEN_VARIABLE; // возвращаем класс токена "переменная"
+    else if (!tinybasic_strcmp(word, "LET"))
+        return TOKEN_LET; // возвращаем класс токена "LET"
+    else if (!tinybasic_strcmp(word, "IF"))
+        return TOKEN_IF; // возвращаем класс токена "IF"
+    else if (!tinybasic_strcmp(word, "THEN"))
+        return TOKEN_THEN; // возвращаем класс токена "THEN"
+    else if (!tinybasic_strcmp(word, "GOTO"))
+        return TOKEN_GOTO; // возвращаем класс токена "GOTO"
+    else if (!tinybasic_strcmp(word, "GOSUB"))
+        return TOKEN_GOSUB; // возвращаем класс токена "GOSUB"
+    else if (!tinybasic_strcmp(word, "RETURN"))
+        return TOKEN_RETURN; // возвращаем класс токена "RETURN"
+    else if (!tinybasic_strcmp(word, "END"))
+        return TOKEN_END; // возвращаем класс токена "END"
+    else if (!tinybasic_strcmp(word, "PRINT"))
+        return TOKEN_PRINT; // возвращаем класс токена "PRINT"
+    else if (!tinybasic_strcmp(word, "INPUT"))
+        return TOKEN_INPUT; // возвращаем класс токена "INPUT"
+    else if (!tinybasic_strcmp(word, "REM"))
+        return TOKEN_REM; // возвращаем класс токена "REM"
+    else if (!tinybasic_strcmp(word, "RND"))
+        return TOKEN_RND; // возвращаем класс токена "RND"
+    else
+        return TOKEN_WORD; // возвращаем класс токена "слово"
+}
 
-  /* return result */
-  return return_token;
+// Идентифицируем составные символы
+static TokenClass identify_compound_symbol(char* symbol) {
+    if (!strcmp(symbol, "<>") // если символ - "<>"
+        || !strcmp(symbol, "><")) // или символ - "><"
+        return TOKEN_UNEQUAL; // возвращаем класс токена "не равно"
+    else if (!strcmp(symbol, "<"))
+        return TOKEN_LESSTHAN; // возвращаем класс токена "меньше"
+    else if (!strcmp(symbol, "<="))
+        return TOKEN_LESSOREQUAL; // возвращаем класс токена "меньше или равно"
+    else if (!strcmp(symbol, ">"))
+        return TOKEN_GREATERTHAN; // возвращаем класс токена "больше"
+    else if (!strcmp(symbol, ">="))
+        return TOKEN_GREATEROREQUAL; // возвращаем класс токена "больше или равно"
+    else
+        return TOKEN_SYMBOL; // возвращаем класс токена "символ"
+}
+
+static void default_mode(TokeniserState* state) {
+
+    // обработка пробелов и символов табуляции, не являющихся концом строки
+    if (state->ch == ' '
+        state->ch == '\t') {
+        state->ch = read_character(state); // считываем следующий символ
+        data->start_line = data->line; // сохраняем номер строки начала токена
+        data->start_pos = data->pos; // сохраняем позицию начала токена
+    }
+
+    // обработка пробелов в конце строки
+    else if (state->ch == '\n') {
+        data->start_line = data->line - 1; // сохраняем номер предыдущей строки
+        data->start_pos = data->pos; // сохраняем позицию начала токена
+        state->token = new_Token_init
+        (TOKEN_EOL, data->start_line, data->start_pos, state->content); // создаем токен для конца строки
+    }
+
+    // обработка слов
+    else if ((state->ch >= 'A' && state->ch <= 'Z')
+        (state->ch >= 'a' && state->ch <= 'z')) {
+        data->start_line = data->line; // сохраняем номер строки начала токена
+        data->start_pos = data->pos; // сохраняем позицию начала токена
+        state->mode = WORD_MODE; // переходим в режим чтения слова
+    }
+
+    // обработка чисел
+    else if (state->ch >= '0' && state->ch <= '9')
+        state->mode = NUMBER_MODE; // переходим в режим чтения числа
+
+    //проверка на операторы, начинающиеся с < (<, <=, <>)
+    else if (state->ch == '<') {
+        data->start_line = data->line; // сохраняем номер строки начала токена
+        data->start_pos = data->pos; // сохраняем позицию начала токена
+        store_character(state); // сохраняем символ <
+        state->ch = read_character(state); // считываем следующий символ
+        state->mode = LESS_THAN_MODE; // переходим в режим чтения оператора, начинающегося с <
+    }
+
+    // проверка на операторы, начинающиеся с >
+    else if (state->ch == '>') {
+        data->start_line = data->line; // сохраняем номер строки начала токена
+        data->start_pos = data->pos; // сохраняем позицию начала токена
+        store_character(state); // сохраняем символ >
+        state->ch = read_character(state); // считываем следующий символ
+        state->mode = GREATER_THAN_MODE; // переходим в режим чтения оператора, начинающегося с >
+    }
+
+    // обработка других операторов-символов
+    else if (strchr("+-*/=(),;", state->ch) != NULL) {
+        data->start_line = data->line; // сохраняем номер строки начала токена
+        data->start_pos = data->pos; // сохраняем позицию начала токена
+        store_character(state); // сохраняем символ
+        state->token = new_Token_init(identify_symbol(state->ch),
+            data->start_line, data->start_pos, state->content); // создаем токен для символа-оператора
+    }
+
+    // обработка двойных ковычек
+    else if (state->ch == '"') {
+        data->start_line = data->line; // сохраняем номер строки начала токена
+        data->start_pos = data->pos; // сохраняем позицию начала токена
+        state->ch = read_character(state); // считываем следующий символ
+        state->mode = STRING_LITERAL_MODE; // переходим в режим чтения строковой литеры
+    }
+
+    // пришли в конец файла
+    else if (state->ch == EOF) {
+        data->start_line = data->line; // сохраняем номер строки начала токена
+        data->start_pos = data->pos; // сохраняем позицию начала токена
+        state->token = new_Token_init
+        (TOKEN_EOF, data->start_line, data->start_pos, state->content); // создаем токен для конца файла
+    }
+
+    // обработка недопустимых символов 
+    else {
+        data->start_line = data->line; // сохраняем номер строки начала токена
+        data->start_pos = data->pos; // сохраняем позицию начала токена
+        store_character(state); // сохраняем символ
+        state->token = new_Token_init
+        (TOKEN_ILLEGAL, data->start_line, data->start_pos, state->content); // создаем токен для недопустимого символа
+    }
+}   
+
+// Режим чтения слова - обрабатывает символы при создании токена слова
+static void word_mode(TokeniserState* state) {
+
+    TokenClass class; // распознанный класс ключевого слова
+
+    // добавляем буквы и цифры к токену 
+    if ((state->ch >= 'A' && state->ch <= 'Z') ||
+        (state->ch >= 'a' && state->ch <= 'z')) {
+        store_character(state); // сохраняем символ
+        state->ch = read_character(state); // считываем следующий символ
+    }
+
+    // остальные символы сохраняются для следующего токена 
+    else {
+        if (state->ch != EOF)
+            unread_character(state); // возврат символа в поток ввода
+        class = identify_word(state->content); // определение класса токена слова
+        if (class == TOKEN_REM) {
+            *state->content = '\0'; // обнуляем содержимое токена
+            state->mode = COMMENT_MODE; // переходим в режим чтения комментария
+        }
+        else
+            state->token = new_Token_init
+            (class, data->start_line, data->start_pos, state->content); // создаем токен
+    }
+}
+
+// Режим чтения комментария - пропуск до конца строки после REM
+static void comment_mode(TokeniserState* state) {
+    if (state->ch == '\n')
+        state->mode = DEFAULT_MODE; // возвращаемся в режим по умолчанию
+    else
+        state->ch = read_character(state); // считываем следующий символ
+}
+
+// Режим чтения числа - создание токена числа (только целого)
+static void number_mode(TokeniserState* state) {
+
+    // добавляем цифры к токену 
+    if (state->ch >= '0' && state->ch <= '9') {
+        store_character(state); // сохраняем символ
+        state->ch = read_character(state); // считываем следующий символ
+    }
+
+    // остальные символы сохраняются для следующего токена
+    else {
+        if (state->ch != EOF)
+            unread_character(state); // возврат символа в поток ввода
+        state->token = new_Token_init
+        (TOKEN_NUMBER, data->start_line, data->start_pos, state->content); // создаем токен
+    }
 
 }
 
+
 /*
- * Getter for the current line number
- * paramss:
- *   TokenStream*   token_stream   the token stream being processed
- * returns:
- *   int                           the current line number returned
+ * Режим чтения операторов, начинающихся с "<" - проверка на <> и <=
+ * Глобальные переменные:
+ *   int               start_line   номер строки, на которой начался текущий токен
+ *   int               start_pos    позиция символа, на котором начался текущий токен
+ * Параметры:
+ *   TokeniserState*   state        текущее состояние токенизатора
  */
-static int get_line (TokenStream *token_stream) {
-  this = token_stream;
-  data = this->data;
-  return data->line;
+static void less_than_mode(TokeniserState* state) {
+    if (state->ch == '=' || state->ch == '>')
+        store_character(state); // сохраняем символ
+    else
+        unread_character(state); // возвращаем символ в поток ввода
+    state->token = new_Token_init
+    (identify_compound_symbol(state->content), data->start_line,
+        data->start_pos, state->content); // создаем токен
 }
 
-/*
- * Destructor for a TokenStream
- * params:
- *   TokenStream*   token_stream   the doomed token stream
- */
-static void destroy (TokenStream *token_stream) {
-  if (token_stream) {
-    if (token_stream->data)
-      free (token_stream->data);
-    free (token_stream);
-  }
+// Режим чтения операторов, начинающихся с ">" - проверка на >= и ><
+static void greater_than_mode(TokeniserState* state) {
+    if (state->ch == '=' || state->ch == '<')
+        store_character(state); // сохраняем символ
+    else
+        ungetc(state->ch, data->input); // возвращаем символ в поток ввода
+    state->token = new_Token_init
+    (identify_compound_symbol(state->content), data->start_line,
+        data->start_pos, state->content); // создаем токен
+}
+
+// Режим чтения строки
+static void string_literal_mode(TokeniserState* state) {
+
+    // кавычка завершает строку 
+    if (state->ch == '"')
+        state->token = new_Token_init
+        (TOKEN_STRING, data->start_line, data->start_pos, state->content); // создаем токен для строковой литеры
+
+    // два слеша завершают строку
+    else if (state->ch == '\\') {
+        state->ch = read_character(state); // считываем следующий символ
+        store_character(state); // сохраняем символ
+        state->ch = read_character(state); // считываем следующий символ
+    }
+
+    // конец файла генерирует ошибку 
+    else if (state->ch == EOF)
+        state->token = new_Token_init
+        (TOKEN_ILLEGAL, data->start_line, data->start_pos, state->content); // создаем токен для недопустимого символа
+
+    // все остальные символы являются частью строки 
+    else {
+        store_character(state); // сохраняем символ
+        state->ch = read_character(state); // считываем следующий символ
+    }
 }
 
 
-/*
- * Constructors
- */
+// Получаем следующий токен
+static Token* next(TokenStream* token_stream) {
 
+    TokeniserState state; // текущее состояние чтения
+    Token* return_token; // токен для возврата 
 
-/*
- * Constructor for TokenStream
- * params:
- *   FILE*   input   Input file
- * returns:
- *   TokenStream*    The new token stream
- */
-TokenStream *new_TokenStream (FILE *input) {
+    // инициализация 
+    this = token_stream;
+    data = this->data;
+    state.token = NULL;
+    state.mode = DEFAULT_MODE;
+    state.max = 1024;
+    state.content = malloc(state.max);
+    *(state.content) = '\0';
+    state.ch = read_character(&state); // считываем первый символ
 
-  /* allocate the memory */
-  this = malloc (sizeof (TokenStream));
-  this->data = data = malloc (sizeof (Private));
+    while (state.token == NULL) {
+        switch (state.mode) {
+        case DEFAULT_MODE:
+            default_mode(&state); // режим по умолчанию
+            break;
+        case COMMENT_MODE:
+            comment_mode(&state); // режим комментария
+            break;
+        case WORD_MODE:
+            word_mode(&state); // режим чтения слова
+            break;
+        case NUMBER_MODE:
+            number_mode(&state); // режим чтения числа
+            break;
+        case LESS_THAN_MODE:
+            less_than_mode(&state); // режим чтения оператора, начинающегося с <
+            break;
+        case GREATER_THAN_MODE:
+            greater_than_mode(&state); // режим чтения оператора, начинающегося с >
+            break;
+        case STRING_LITERAL_MODE:
+            string_literal_mode(&state); // режим чтения строковой литеры
+            break;
+        default:
+            state.token = new_Token_init
+            (TOKEN_EOF, data->start_line, data->start_pos, state.content); // встречен конец файла
+            state.ch = EOF; 
+        }
+    }
 
-  /* initialise methods */
-  this->next = next;
-  this->get_line = get_line;
-  this->destroy = destroy;
+    //сохраняем токен и освобождаем память состояния 
+    return_token = state.token;
+    free(state.content);
 
-  /* initialise data */
-  data->input = input;
-  data->line = data->start_line = 1;
-  data->pos = data->start_pos = 0;
+    // возвращаем результат 
+    return return_token;
+}
 
-  /* return new token stream */
-  return this;
+// Получение текущего номера строки
+static int get_line(TokenStream* token_stream) {
+    this = token_stream;
+    data = this->data;
+    return data->line;
+}
+
+// Деструктор для TokenStream
+static void destroy(TokenStream* token_stream) {
+    if (token_stream) {
+        if (token_stream->data)
+            free(token_stream->data);
+        free(token_stream);
+    }
+}
+
+//Конструктор для TokenStream
+TokenStream* new_TokenStream(FILE* input) {
+
+    //выделение памяти 
+    this = malloc(sizeof(TokenStream));
+    this->data = data = malloc(sizeof(Private));
+
+    // инициализация методов 
+    this->next = next;
+    this->get_line = get_line;
+    this->destroy = destroy;
+
+    // инициализация данных 
+    data->input = input;
+    data->line = data->start_line = 1;
+    data->pos = data->start_pos = 0;
+
+    // возвращение нового токенового потока 
+    return this;
 }
