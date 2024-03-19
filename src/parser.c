@@ -431,162 +431,139 @@ static StatementNode* parse_end_statement(void) {
     return statement;
 }
 
+// Разбор оператора PRINT
+static StatementNode* parse_print_statement(void) {
 
-//
- * Parse a PRINT statement
- * returns:
- *   StatementNode*          The statement assembled
- 
-static StatementNode *parse_print_statement (void) {
+    Token* token = NULL; // токены, прочитанные как часть оператора
+    StatementNode* statement; // собранный оператор
+    int line; // строка, содержащая токен PRINT
+    OutputNode* nextoutput = NULL; // следующий узел вывода, который мы разбираем
+    OutputNode* lastoutput = NULL; // последний разобранный узел вывода
+    ExpressionNode* expression; // разобранное выражение
 
-  // local variables 
-  Token *token = NULL; // tokens read as part of the statement 
-  StatementNode *statement; // the statement we're building 
-  int line; // line containing the PRINT token 
-  OutputNode
-    *nextoutput = NULL, // the next output node we're parsing 
-    *lastoutput = NULL; // the last output node we parsed 
-  ExpressionNode *expression; // a parsed expression 
+    // Инициализация оператора
+    statement = statement_create();
+    statement->class = STATEMENT_PRINT;
+    statement->statement.printn = statement_create_print();
+    line = this->priv->stream->get_line(this->priv->stream);
 
-  // initialise the statement 
-  statement = statement_create ();
-  statement->class = STATEMENT_PRINT;
-  statement->statement.printn = statement_create_print ();
-  line = this->priv->stream->get_line (this->priv->stream);
+    // Главный цикл для разбора списка вывода
+    do {
 
-  // main loop for parsing the output list 
-  do {
+        // Удаление предыдущей запятой и чтение следующего значения вывода
+        if (token)
+            token->destroy(token);
+        token = get_token_to_parse();
 
-    // discard a previous comma, and read the next output value 
-    if (token)
-      token->destroy (token);
-    token = get_token_to_parse ();
+        // Обработка преждевременного конца строки
+        if (token->get_class(token) == TOKEN_EOF || token->get_class(token) == TOKEN_EOL) {
+            this->priv->errors->set_code(this->priv->errors, E_INVALID_PRINT_OUTPUT, line, this->priv->last_label);
+            statement_destroy(statement);
+            statement = NULL;
+            token->destroy(token);
+        }
 
-    // process a premature end of line 
-    if (token->get_class (token) == TOKEN_EOF
-      || token->get_class (token) == TOKEN_EOL) {
-      this->priv->errors->set_code
-        (this->priv->errors, E_INVALID_PRINT_OUTPUT, line,
-        this->priv->last_label);
-      statement_destroy (statement);
-      statement = NULL;
-      token->destroy (token);
-    }
+        // Обработка литеральной строки
+        else if (token->get_class(token) == TOKEN_STRING) {
+            nextoutput = malloc(sizeof(OutputNode));
+            nextoutput->class = OUTPUT_STRING;
+            nextoutput->output.string = malloc(1 + strlen(token->get_content(token)));
+            strcpy(nextoutput->output.string, token->get_content(token));
+            nextoutput->next = NULL;
+            token->destroy(token);
+        }
 
-    // process a literal string 
-    else if (token->get_class (token) == TOKEN_STRING) {
-      nextoutput = malloc (sizeof (OutputNode));
-      nextoutput->class = OUTPUT_STRING;
-      nextoutput->output.string = malloc
-	(1 + strlen (token->get_content (token)));
-      strcpy (nextoutput->output.string, token->get_content (token));
-      nextoutput->next = NULL;
-      token->destroy (token);
-    }
+        // Попытка обработать выражение
+        else {
+            this->priv->stored_token = token;
+            if ((expression = parse_expression())) {
+                nextoutput = malloc(sizeof(OutputNode));
+                nextoutput->class = OUTPUT_EXPRESSION;
+                nextoutput->output.expression = expression;
+                nextoutput->next = NULL;
+            }
+            else {
+                this->priv->errors->set_code(this->priv->errors, E_INVALID_PRINT_OUTPUT, token->get_line(token), this->priv->last_label);
+                statement_destroy(statement);
+                statement = NULL;
+            }
+        }
 
-    // attempt to process an expression 
-    else {
-      this->priv->stored_token = token;
-      if ((expression = parse_expression ())) {
-        nextoutput = malloc (sizeof (OutputNode));
-        nextoutput->class = OUTPUT_EXPRESSION;
-        nextoutput->output.expression = expression;
-        nextoutput->next = NULL;
-      } else {
-        this->priv->errors->set_code
-          (this->priv->errors, E_INVALID_PRINT_OUTPUT, token->get_line (token),
-             this->priv->last_label);
-        statement_destroy (statement);
-        statement = NULL;
-      }
-    }
+        // Добавление этого элемента вывода к оператору и поиск следующего
+        if (!this->priv->errors->get_code(this->priv->errors)) {
+            if (lastoutput)
+                lastoutput->next = nextoutput;
+            else
+                statement->statement.printn->first = nextoutput;
+            lastoutput = nextoutput;
+            token = get_token_to_parse();
+        }
 
-    // add this output item to the statement and look for another 
-    if (! this->priv->errors->get_code (this->priv->errors)) {
-      if (lastoutput)
-        lastoutput->next = nextoutput;
-      else
-        statement->statement.printn->first = nextoutput;
-      lastoutput = nextoutput;
-      token = get_token_to_parse ();
-    }
+        // Продолжение цикла, пока оператор не будет завершен
+    } while (!this->priv->errors->get_code(this->priv->errors) &&
+        (token->get_class(token) == TOKEN_COMMA || token->get_class(token) == TOKEN_SEMICOLON));
 
-  // continue the loop until the statement appears to be finished 
-  } while (! this->priv->errors->get_code (this->priv->errors)
-    && (token->get_class (token) == TOKEN_COMMA || token->get_class(token) == TOKEN_SEMICOLON));
-
-  // push back the last token and return the assembled statement 
-  if (! this->priv->errors->get_code (this->priv->errors))
-    this->priv->stored_token = token;
-  return statement;
+    // Вернуть последний токен и собранный оператор
+    if (!this->priv->errors->get_code(this->priv->errors))
+        this->priv->stored_token = token;
+    return statement;
 }
+// Разбор оператора INPUT
+static StatementNode* parse_input_statement(void) {
 
-//
- * Parse an INPUT statement
- * returns:
- *   StatementNode*          The statement assembled
- 
-static StatementNode *parse_input_statement (void) {
+    Token* token = NULL; // токены, прочитанные как часть оператора
+    StatementNode* statement; // собранный оператор
+    int line; // строка, содержащая токен INPUT
+    VariableListNode* nextvar = NULL; // следующий узел переменной, который мы разбираем
+    VariableListNode* lastvar = NULL; // последний разобранный узел переменной
 
-  // local variables 
-  Token *token = NULL; // tokens read as part of the statement 
-  StatementNode *statement; // the statement we're building 
-  int line; // line containing the INPUT token 
-  VariableListNode
-    *nextvar = NULL, // the next variable node we're parsing 
-    *lastvar = NULL; // the last variable node we parsed 
+    // Инициализация оператора
+    statement = statement_create();
+    statement->class = STATEMENT_INPUT;
+    statement->statement.inputn = statement_create_input();
+    line = this->priv->stream->get_line(this->priv->stream);
 
-  // initialise the statement 
-  statement = statement_create ();
-  statement->class = STATEMENT_INPUT;
-  statement->statement.inputn = statement_create_input ();
-  line = this->priv->stream->get_line (this->priv->stream);
+    // Главный цикл для разбора списка переменных
+    do {
 
-  // main loop for parsing the variable list 
-  do {
+        // Удаление предыдущей запятой и поиск следующей переменной
+        if (token) token->destroy(token);
+        token = get_token_to_parse();
 
-    // discard a previous comma, and seek the next variable 
-    if (token) token->destroy (token);
-    token = get_token_to_parse ();
+        // Обработка преждевременного конца строки
+        if (token->get_class(token) == TOKEN_EOF || token->get_line(token) != line) {
+            this->priv->errors->set_code(this->priv->errors, E_INVALID_VARIABLE, line, this->priv->last_label);
+            statement_destroy(statement);
+            statement = NULL;
+        }
 
-    // process a premature end of line 
-    if (token->get_class (token) == TOKEN_EOF
-      || token->get_line (token) != line) {
-      this->priv->errors->set_code
-        (this->priv->errors, E_INVALID_VARIABLE, line, this->priv->last_label);
-      statement_destroy (statement);
-      statement = NULL;
-    }
+        // Попытка обработки имени переменной
+        else if (token->get_class(token) != TOKEN_VARIABLE) {
+            this->priv->errors->set_code(this->priv->errors, E_INVALID_VARIABLE, token->get_line(token), this->priv->last_label);
+            statement_destroy(statement);
+            statement = NULL;
+        }
+        else {
+            nextvar = malloc(sizeof(VariableListNode));
+            nextvar->variable = *(token->get_content(token)) & 0x1f;
+            nextvar->next = NULL;
+            token->destroy(token);
+        }
 
-    // attempt to process an variable name 
-    else if (token->get_class (token) != TOKEN_VARIABLE) {
-      this->priv->errors->set_code
-        (this->priv->errors, E_INVALID_VARIABLE, token->get_line (token),
-	this->priv->last_label);
-      statement_destroy (statement);
-      statement = NULL;
-    } else {
-      nextvar = malloc (sizeof (VariableListNode));
-      nextvar->variable = *token->get_content (token) & 0x1f;
-      nextvar->next = NULL;
-      token->destroy (token);
-    }
+        // Добавление этой переменной в оператор и поиск следующей
+        if (!this->priv->errors->get_code(this->priv->errors)) {
+            if (lastvar)
+                lastvar->next = nextvar;
+            else
+                statement->statement.inputn->first = nextvar;
+            lastvar = nextvar;
+            token = get_token_to_parse();
+        }
+    } while (!this->priv->errors->get_code(this->priv->errors) && token->get_class(token) == TOKEN_COMMA);
 
-    // add this variable to the statement and look for another 
-    if (! this->priv->errors->get_code (this->priv->errors)) {
-      if (lastvar)
-        lastvar->next = nextvar;
-      else
-        statement->statement.inputn->first = nextvar;
-      lastvar = nextvar;
-      token = get_token_to_parse ();
-    }
-  } while (! this->priv->errors->get_code (this->priv->errors)
-    && token->get_class (token) == TOKEN_COMMA);
-
-  // return the assembled statement 
-  this->priv->stored_token = token;
-  return statement;
+    // Возврат собранного оператора
+    this->priv->stored_token = token;
+    return statement;
 }
 
 //RND function call is an expression, and I'm dumb
@@ -596,249 +573,193 @@ static StatementNode *parse_input_statement (void) {
   // TODO implement
 } 
 
-//
- * Parse a statement from the source file
- * returns:
- *   StatementNode*   a fully-assembled statement, hopefully.
- 
-static StatementNode *parse_statement () {
+// Разбор оператора из исходного файла
+static StatementNode* parse_statement() {
+    Token* token; // прочитанный токен
+    StatementNode* statement = NULL; // новый оператор
 
-  // local variables 
-  Token *token; // token read 
-  StatementNode *statement = NULL; // the new statement 
+    // Получение следующего токена
+    token = get_token_to_parse();
 
-  // get the next token 
-  token = get_token_to_parse ();
-
-  // check for command 
-  switch (token->get_class (token)) {
+    // Проверка команды
+    switch (token->get_class(token)) {
     case TOKEN_EOL:
-      this->priv->stored_token = token;
-      statement = NULL;
-      break;
+        this->priv->stored_token = token;
+        statement = NULL;
+        break;
     case TOKEN_LET:
-      token->destroy (token);
-      statement = parse_let_statement ();
-      break;
+        token->destroy(token);
+        statement = parse_let_statement();
+        break;
     case TOKEN_IF:
-      token->destroy (token);
-      statement = parse_if_statement ();
-      break;
+        token->destroy(token);
+        statement = parse_if_statement();
+        break;
     case TOKEN_GOTO:
-      token->destroy (token);
-      statement = parse_goto_statement ();
-      break;
+        token->destroy(token);
+        statement = parse_goto_statement();
+        break;
     case TOKEN_GOSUB:
-      token->destroy (token);
-      statement = parse_gosub_statement ();
-      break;
+        token->destroy(token);
+        statement = parse_gosub_statement();
+        break;
     case TOKEN_RETURN:
-      token->destroy (token);
-      statement = parse_return_statement ();
-      break;
+        token->destroy(token);
+        statement = parse_return_statement();
+        break;
     case TOKEN_END:
-      token->destroy (token);
-      statement = parse_end_statement ();
-      break;
+        token->destroy(token);
+        statement = parse_end_statement();
+        break;
     case TOKEN_PRINT:
-      token->destroy (token);
-      statement = parse_print_statement ();
-      break;
+        token->destroy(token);
+        statement = parse_print_statement();
+        break;
     case TOKEN_INPUT:
-      token->destroy (token);
-      statement = parse_input_statement ();
-      break;
-//     case TOKEN_RND:
-      token->destroy (token);
-      statement = parse_rnd_statement ();
-      break; 
+        token->destroy(token);
+        statement = parse_input_statement();
+        break;
     default:
-      this->priv->errors->set_code
-        (this->priv->errors, E_UNRECOGNISED_COMMAND, token->get_line (token),
-        this->priv->last_label);
-      token->destroy (token);
-  }
-
-  // return the statement 
-  return statement;
-}
-
-//
- * Parse a line from the source file.
- * returns:
- *   StatementNode           a fully-assembled statement, hopefully.
- 
-static ProgramLineNode *parse_program_line (void) {
-
-  // local variables 
-  Token *token; // token read 
-  ProgramLineNode *program_line; // program line read 
-  int label_encountered = 0; // 1 if this line has an explicit label 
-
-  // initialise the program line and get the first token 
-  program_line = program_line_create ();
-  program_line->label = generate_default_label ();
-  token = get_token_to_parse ();
-
-  // deal with end of file 
-  if (token->get_class (token) == TOKEN_EOF) {
-    token->destroy (token);
-    program_line_destroy (program_line);
-    return NULL;
-  }
-
-  // deal with line label, if supplied 
-  if (token->get_class (token) == TOKEN_NUMBER) {
-    program_line->label = atoi (token->get_content (token));
-    label_encountered = 1;
-    token->destroy (token);
-  } else
-    this->priv->stored_token = token;
-
-  // validate the supplied or implied line label 
-  if (! validate_line_label (program_line->label)) {
-    this->priv->errors->set_code
-      (this->priv->errors, E_INVALID_LINE_NUMBER, this->priv->current_line,
-      program_line->label);
-    program_line_destroy (program_line);
-    return NULL;
-  }
-  if (label_encountered)
-    this->priv->last_label = program_line->label;
-
-  // check for a statement and an EOL 
-  program_line->statement = parse_statement ();
-  if (! this->priv->errors->get_code (this->priv->errors)) {
-    token = get_token_to_parse ();
-    if (token->get_class (token) != TOKEN_EOL
-      && token->get_class (token) != TOKEN_EOF)
-      this->priv->errors->set_code
-        (this->priv->errors, E_UNEXPECTED_PARAMETER, this->priv->current_line,
-        this->priv->last_label);
-    token->destroy (token);
-  }
-  if (program_line->statement)
-    this->priv->last_label = program_line->label;
-
-  // return the program line 
-  return program_line;
-}
-
-
-//
- * Public Methods
- 
-
-
-//
- * Parse the whole program
- * params:
- *   Parser*   parser   The parser to use
- * returns:
- *   ProgramNode*       The parsed program
- 
-static ProgramNode *parse (Parser *parser) {
-
-  // local varables 
-  ProgramNode *program; // the stored program 
-  ProgramLineNode
-    *previous = NULL, // the previous line 
-    *current; // the current line 
-
-  // initialise the program 
-  this = parser;
-  program = malloc (sizeof (ProgramNode));
-  program->first = NULL;
-
-  // read lines until reaching an error or end of input 
-  while ((current = parse_program_line ())
-    && ! this->priv->errors->get_code (this->priv->errors)) {
-    if (previous)
-      previous->next = current;
-    else
-      program->first = current;
-    previous = current;
-  }
-
-  // return the program 
-  return program;
-}
-
-//
- * Return the current source line we're parsing
- * params:
- *   Parser*   The parser to use
- * returns:
- *   int       the line returned
- 
-static int get_line (Parser *parser) {
-  return parser->priv->current_line;
-}
-
-//
- * Return the label of the source line we're parsing
- * params:
- *   Parser*   parser   The parser to use
- * returns:
- *   int                the label returned
- 
-static int get_label (Parser *parser) {
-  return parser->priv->last_label;
-}
-
-//
- * Destroy this parser object
- * params:
- *   Parser*   parser   the doomed parser
- 
-void destroy (Parser *parser) {
-  if (parser) {
-    if (parser->priv) {
-      if (parser->priv->stream)
-        parser->priv->stream->destroy (parser->priv->stream);
+        this->priv->errors->set_code(this->priv->errors, E_UNRECOGNISED_COMMAND, token->get_line(token), this->priv->last_label);
+        token->destroy(token);
     }
-    free (parser->priv);
-  }
-  free (parser);
+
+    // Возврат оператора
+    return statement;
+}
+// Функция выполняет парсинг строки из исходного файла.
+static ProgramLineNode* parse_program_line(void) {
+
+    // Локальные переменные
+    Token* token; // считанный токен
+    ProgramLineNode* program_line; // считанная строка программы
+    int label_encountered = 0; // флаг, равен 1, если в этой строке есть явная метка
+
+    // Инициализируем строку программы и получаем первый токен
+    program_line = program_line_create();
+    program_line->label = generate_default_label();
+    token = get_token_to_parse();
+
+    // Обрабатываем конец файла
+    if (token->get_class(token) == TOKEN_EOF) {
+        token->destroy(token);
+        program_line_destroy(program_line);
+        return NULL;
+    }
+
+    // Обрабатываем метку строки, если есть
+    if (token->get_class(token) == TOKEN_NUMBER) {
+        program_line->label = atoi(token->get_content(token));
+        label_encountered = 1;
+        token->destroy(token);
+    }
+    else
+        this->priv->stored_token = token;
+
+    // Проверяем указанную или предполагаемую метку строки
+    if (!validate_line_label(program_line->label)) {
+        this->priv->errors->set_code
+        (this->priv->errors, E_INVALID_LINE_NUMBER, this->priv->current_line,
+            program_line->label);
+        program_line_destroy(program_line);
+        return NULL;
+    }
+    if (label_encountered)
+        this->priv->last_label = program_line->label;
+
+    // Проверяем наличие выражения и EOL
+    program_line->statement = parse_statement();
+    if (!this->priv->errors->get_code(this->priv->errors)) {
+        token = get_token_to_parse();
+        if (token->get_class(token) != TOKEN_EOL
+            && token->get_class(token) != TOKEN_EOF)
+            this->priv->errors->set_code
+            (this->priv->errors, E_UNEXPECTED_PARAMETER, this->priv->current_line,
+                this->priv->last_label);
+        token->destroy(token);
+    }
+    if (program_line->statement)
+        this->priv->last_label = program_line->label;
+
+    // Возвращаем строку программы
+    return program_line;
 }
 
 
-//
- * Constructors
- 
+// Функция выполняет парсинг всей программы.
+    // Принимает указатель на объект Parser.
+    // Возвращает указатель на структуру ProgramNode, содержащую результаты парсинга.
 
+static ProgramNode* parse(Parser* parser) {
+    ProgramNode* program; // хранит собранную программу 
+    ProgramLineNode
+        * previous = NULL, // предыдущая строка 
+        * current; // текущая строка 
 
-//
- * Constructor
- * params:
- *   ErrorHandler*      errors    the error handler to use
- *   LanguageOptions*   options   the language options to use
- *   FILE*              input     the input file
- * returns:
- *   Parser*                      the new parser
- 
-Parser *new_Parser (ErrorHandler *errors, LanguageOptions *options,
-  FILE *input) {
+    // инициализация программы
+    this = parser; // Устанавливаем указатель "this" на объект Parser, чтобы использовать его приватные переменные
+    program = malloc(sizeof(ProgramNode)); // Выделяем память для структуры ProgramNode
+    program->first = NULL; // Инициализируем указатель на первую строку программы
 
-  // allocate memory 
-  this = malloc (sizeof (Parser));
-  this->priv = malloc (sizeof (ParserData));
-  this->priv->stream = new_TokenStream (input);
+    while ((current = parse_program_line()) // Читаем строки программы с помощью функции parse_program_line
+        && !this->priv->errors->get_code(this->priv->errors)) { // Пока строка считывается успешно и нет ошибок
+        if (previous)
+            previous->next = current; // Если предыдущая строка существует, устанавливаем у нее указатель на следующую строку
+        else
+            program->first = current; // Иначе, устанавливаем указатель первой строки программы на текущую строку
+        previous = current; // Присваиваем текущую строку переменной previous
+    }
 
-  // initialise methods 
-  this->parse = parse;
-  this->get_line = get_line;
-  this->get_label = get_label;
-  this->destroy = destroy;
+    return program; // Возвращаем собранную программу
+}
 
-  // initialise properties 
-  this->priv->last_label = 0;
-  this->priv->current_line = 0;
-  this->priv->end_of_file = 0;
-  this->priv->stored_token = NULL;
-  this->priv->errors = errors;
-  this->priv->options = options;
+// Функция возвращает текущую парсируемую строку исходного кода
+static int get_line(Parser* parser) {
+    return parser->priv->current_line; // Возвращаем номер текущей строки исходного кода
+}
 
-  // return the new object 
-  return this;
+// Функция возвращает метку текущей парсируемой строки исходного кода.
+static int get_label(Parser* parser) {
+    return parser->priv->last_label; // Возвращаем метку текущей строки исходного кода
+}
+
+// Функция уничтожает объект парсера и освобождает выделенную память.
+// Принимает указатель на объект Parser.
+
+void destroy(Parser* parser) {
+    if (parser) {
+        if (parser->priv) {
+            if (parser->priv->stream)
+                parser->priv->stream->destroy(parser->priv->stream); // Уничтожаем объект stream, если он существует
+        }
+        free(parser->priv); // Освобождаем память, выделенную для приватных переменных парсера
+    }
+    free(parser); // Освобождаем память, выделенную для парсера
+}
+
+// Функция создает новый объект парсера.
+Parser* new_Parser(ErrorHandler* errors, LanguageOptions* options,
+    FILE* input) {
+
+    // выделение памяти
+    this = malloc(sizeof(Parser));
+    this->priv = malloc(sizeof(ParserData));
+    this->priv->stream = new_TokenStream(input); // Создание нового объекта TokenStream для работы с входным файлом
+
+    // инициализация методов
+    this->parse = parse; // Устанавливаем метод parse
+    this->get_line = get_line; // Устанавливаем метод get_line
+    this->get_label = get_label; // Устанавливаем метод get_label
+    this->destroy = destroy; // Устанавливаем метод destroy
+
+    // инициализация свойств
+    this->priv->last_label = 0; // Инициализируем последнюю метку
+    this->priv->current_line = 0; // Инициализируем текущую строку
+    this->priv->end_of_file = 0; // Инициализируем флаг конца файла
+    this->priv->stored_token = NULL; // Инициализируем хранимый токен
+    this->priv->errors = errors; // Устанавливаем обработчик ошибок
+    this->priv->options = options; // Устанавливаем опции языка
+
+    // возвращаем новый объект
+    return this;
 }
