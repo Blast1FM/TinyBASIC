@@ -1,13 +1,5 @@
-/*
- * Tiny BASIC
- * Expression Handling Module
- *
- * Released as Public Domain by Damian Gareth Walker 2019
- * Created: 16-Aug-2019
- */
+// Модуль обработки выражений
 
-
-/* included headers */
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -15,189 +7,119 @@
 #include "expression.h"
 #include "errors.h"
 
+// Функции для работы с выражениями
 
-/*
- * Functions for Dealing with Factors
- */
-
-
-/*
- * Constructor for a factor
- * returns:
- *   FactorNode*   the new factor
- */
-FactorNode *factor_create (void) {
-
-  /* local variables */
-  FactorNode *factor; /* the new factor */
-
-  /* allocate memory and initialise members */
-  factor = malloc (sizeof (FactorNode));
-  factor->class = FACTOR_NONE;
-  factor->sign = SIGN_POSITIVE;
-
-  /* return the factor */
-  return factor;
+// Конструктор для правого члена выражения
+RightHandTerm* rhterm_create(void) {
+    // локальные переменные
+    RightHandTerm* rhterm; // новое правое выражение
+    // выделение памяти и инициализация членов
+    rhterm = malloc(sizeof(RightHandTerm));
+    rhterm->op = EXPRESSION_OPERATOR_NONE;
+    rhterm->term = NULL;
+    rhterm->next = NULL;
+    // возврат нового правого выражения
+    return rhterm;
 }
 
-/*
- * Destructor for a factor
- * params:
- *   FactorNode*   factor   the doomed factor
- */
-void factor_destroy (FactorNode *factor) {
-  if (factor->class == FACTOR_EXPRESSION && factor->data.expression) {
-    expression_destroy (factor->data.expression);
-  }
-  free (factor);
+// Рекурсивный деструктор для правого члена выражения
+void rhterm_destroy(RightHandTerm* rhterm) {
+    if (rhterm->next)
+        rhterm_destroy(rhterm->next);
+    if (rhterm->term)
+        term_destroy(rhterm->term);
+    free(rhterm);
 }
 
-
-/*
- * Functions for Dealing with Terms
- */
-
-
-/*
- * Constructor for a right-hand factor of a term
- * returns:
- *   RightHandFactor*   the new RH factor of a term
- */
-RightHandFactor *rhfactor_create (void) {
-
-  /* local variables */
-  RightHandFactor *rhfactor; /* the RH factor of a term to create */
-
-  /* allocate memory and initialise members */
-  rhfactor = malloc (sizeof (RightHandFactor));
-  rhfactor->op = TERM_OPERATOR_NONE;
-  rhfactor->factor = NULL;
-  rhfactor->next = NULL;
-
-  /* return the new RH term */
-  return rhfactor;
+// Конструктор для выражения
+ExpressionNode* expression_create(void) {
+    // локальные переменные
+    ExpressionNode* expression; // новое выражение
+    // выделение памяти и инициализация членов
+    expression = malloc(sizeof(ExpressionNode));
+    expression->term = NULL;
+    expression->next = NULL;
+    // возврат нового выражения
+    return expression;
 }
 
-/*
- * Recursive destructor for a right-hand factor of a term
- * params:
- *   RightHandFactor*   rhfactor   the doomed RH factor of a term
- */
-void rhfactor_destroy (RightHandFactor *rhfactor) {
-  if (rhfactor->next)
-    rhfactor_destroy (rhfactor->next);
-  if (rhfactor->factor)
-    factor_destroy (rhfactor->factor);
-  free (rhfactor);
+// Деструктор для выражения
+void expression_destroy(ExpressionNode* expression) {
+    // удаление составных частей выражения
+    if (expression->term)
+        term_destroy(expression->term);
+    if (expression->next)
+        rhterm_destroy(expression->next);
+    // удаление самого выражения
+    free(expression);
 }
 
-/*
- * Constructor for a term
- * returns:
- *   TermNode*   the new term
- */
-TermNode *term_create (void) {
+// Функции для работы с множителями
 
-  /* local variables */
-  TermNode *term; /* the new term */
 
-  /* allocate memory and initialise members */
-  term = malloc (sizeof (TermNode));
-  term->factor = NULL;
-  term->next = NULL;
-
-  /* return the new term */
-  return term;
+// Конструктор для множителя
+FactorNode* factor_create(void) {
+    // локальные переменные
+    FactorNode* factor; // новый множитель
+    // выделение памяти и инициализация членов
+    factor = malloc(sizeof(FactorNode));
+    factor->class = FACTOR_NONE;
+    factor->sign = SIGN_POSITIVE;
+    // возврат множителя
+    return factor;
 }
 
-/*
- * Destructor for a term
- * params:
- *   TermNode*   term   the doomed term
- */
-void term_destroy (TermNode *term) {
-
-  /* destroy the consituent parts of the term */
-  if (term->factor)
-    factor_destroy (term->factor);
-  if (term->next)
-    rhfactor_destroy (term->next);
-
-  /* destroy the term itself */
-  free (term);
+// Деструктор для множителя
+void factor_destroy(FactorNode* factor) {
+    if (factor->class == FACTOR_EXPRESSION && factor->data.expression) {
+        expression_destroy(factor->data.expression);
+    }
+    free(factor);
 }
 
+// Конструктор для правого множителя члена
+RightHandFactor* rhfactor_create(void) {
 
-/*
- * Functions for dealing with Expressions
- */
-
-
-/*
- * Constructor for a right-hand expression
- * returns:
- *   RightHandTerm*   the RH term of an expression
- */
-RightHandTerm *rhterm_create (void) {
-
-  /* local variables */
-  RightHandTerm *rhterm; /* the new RH expression */
-
-  /* allocate memory and initialise members */
-  rhterm = malloc (sizeof (RightHandTerm));
-  rhterm->op = EXPRESSION_OPERATOR_NONE;
-  rhterm->term = NULL;
-  rhterm->next = NULL;
-
-  /* return the new right-hand expression */
-  return rhterm;
+    // локальные переменные
+    RightHandFactor* rhfactor; // новый правый множитель члена
+    // выделение памяти и инициализация членов
+    rhfactor = malloc(sizeof(RightHandFactor));
+    rhfactor->op = TERM_OPERATOR_NONE;
+    rhfactor->factor = NULL;
+    rhfactor->next = NULL;
+    // возврат нового правого члена
+    return rhfactor;
 }
 
-/*
- * Recursive destructor for a right-hand term of an expression
- * params:
- *   RightHandTerm*   rhterm   the doomed RH expression
- */
-void rhterm_destroy (RightHandTerm *rhterm) {
-  if (rhterm->next)
-    rhterm_destroy (rhterm->next);
-  if (rhterm->term)
-    term_destroy (rhterm->term);
-  free (rhterm);
+// Рекурсивный деструктор для правого множителя члена
+void rhfactor_destroy(RightHandFactor* rhfactor) {
+    if (rhfactor->next)
+        rhfactor_destroy(rhfactor->next);
+    if (rhfactor->factor)
+        factor_destroy(rhfactor->factor);
+    free(rhfactor);
 }
 
-/*
- * Constructor for an expression
- * returns:
- *   ExpressionNode*   the new expression
- */
-ExpressionNode *expression_create (void) {
-
-  /* local variables */
-  ExpressionNode *expression; /* the new expression */
-
-  /* allocate memory and initialise members */
-  expression = malloc (sizeof (ExpressionNode));
-  expression->term = NULL;
-  expression->next = NULL;
-
-  /* return the new expression */
-  return expression;
+// Конструктор для члена
+TermNode* term_create(void) {
+    // локальные переменные
+    TermNode* term; // новый член
+    // выделение памяти и инициализация членов
+    term = malloc(sizeof(TermNode));
+    term->factor = NULL;
+    term->next = NULL;
+    // возврат нового члена
+    return term;
 }
 
-/*
- * Destructor for a expression
- * params:
- *   ExpressionNode*   expression   the doomed expression
- */
-void expression_destroy (ExpressionNode *expression) {
-
-  /* destroy the consituent parts of the expression */
-  if (expression->term)
-    term_destroy (expression->term);
-  if (expression->next)
-    rhterm_destroy (expression->next);
-
-  /* destroy the expression itself */
-  free (expression);
+// Деструктор для члена
+void term_destroy(TermNode* term) {
+    // удаление составных частей члена
+    if (term->factor)
+        factor_destroy(term->factor);
+    if (term->next)
+        rhfactor_destroy(term->next);
+    // удаление самого члена
+    free(term);
 }
+
